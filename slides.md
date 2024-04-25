@@ -753,76 +753,29 @@ More Dockerfile commands at: https://docs.docker.com/reference/dockerfile/
 
 ---
 
-# Practical
+# Continuing the tutorial
 
-Let's integrate several containers together using `docker-compose.yml`.
-<br>
-We'll use this to build an container API and make it talk to a database container (MongoDB) in part 2 of this pres.
+To follow along with the slides and get code snippets:
 
-````md magic-move
-```sh
-cd ..
-mkdir docker_tut_2
-cd docker_tut_2
-```
-
-```sh
-touch docker-compose.yml
-```
-
-```yml
-#docker-compose.yml
-version: '3.9'
-
-services:
-  app:
-    image: python:3.10
-    volumes:
-      - ./app:/usr/src/app
-    working_dir: /usr/src/app
-    command: python app.py
-    environment:
-      - MONGO_URI=mongodb://mongo:27017/
-    depends_on:
-      - mongo
-    ports:
-      - "5000:5000"
-#...
-```
-
-```yml
-#...
-  mongo:
-    image: mongo:latest
-    volumes:
-      - mongo-data:/data/db
-
-volumes:
-  mongo-data:
-```
-
-```sh
-mkdir app
-sh
-echo "from flask import Flask, request, jsonify\nimport pymongo\napp = Flask(__name__)\nclient = pymongo.MongoClient('mongodb://mongo:27017/')\ndb = client.testdb\n@app.route('/')\ndef hello():\n    return 'Hello from Flask and MongoDB!'\nif __name__ == '__main__':\n    app.run(host='0.0.0.0', port=5000)" > app/app.py
-```
-
-```sh
-docker-compose up
-```
-
-````
+https://github.com/albertbezman/docker-tutorial/blob/main/slides.md
 
 ---
 
-# Practical
+# Practical: Debugging
 
 How can you debug issues in your container?
 <br>
 
 ```sh
+docker image ls # list all images
+docker ps -a # list all containers
+```
+
+<br>
+
+```sh
 # Enter the container
-docker exec -it mycontainer bash
+docker exec -it mycontainer bash # or docker run --rm -it myimage bash
 ```
 
 <br>
@@ -831,13 +784,6 @@ docker exec -it mycontainer bash
 # See logs
 docker logs --tail 20 mycontainer
 ```
----
-
-# Continuing the tutorial
-
-To follow along with the slides and get code snippets:
-
-https://github.com/albertbezman/docker-tutorial/blob/main/slides.md
 
 ---
 
@@ -1083,7 +1029,7 @@ pip install flask
 pip3 freeze > requirements.txt # or pip freeze
 ```
 
-```docker
+```docker {*|3-15}
 # ./flask/Dockerfile
 FROM python:3.10
 
@@ -1382,11 +1328,14 @@ curl localhost:3000
 
 # Practical: CI/CD
 
-### Prerequisites
 
 Let's learn how to build an image using GitHub Actions and push it to the Docker Hub registry.
 
-1) Sign up to the Docker hub on: https://hub.docker.com/
+<br>
+
+### Prerequisites
+
+1) Sign up to the Docker Hub on: https://hub.docker.com/
 
 2) Create a new empty repository on GitHub
 
@@ -1416,7 +1365,7 @@ git branch -m master main
 ```
 
 ```sh
-git remote add origin https://github.com/albertbezman/docker-tut.git
+git remote add origin https://github.com/your-repo.git
 git branch -M main
 git push -u origin main
 ```
