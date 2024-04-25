@@ -826,7 +826,765 @@ docker exec -it mycontainer bash
 ```
 
 <br>
+
 ```sh
 # See logs
 docker logs --tail 20 mycontainer
 ```
+---
+
+# Continuing the tutorial
+
+To follow along with the slides and get code snippets:
+
+https://github.com/albertbezman/docker-tutorial/blob/main/slides.md
+
+---
+
+# Docker Compose
+
+## What?
+
+1) Used to define multi-container Docker configurations
+2) All configuration for multiple containers stored in single `docker-compose.yml` file
+3) Run all services defined in compose file with `docker-compose up`
+
+<br>
+
+<v-click>
+
+## Why?
+
+1) Makes managing multi-container setups more manageable
+2) Also manage some configuration options e.g. ports and environment variables from compose file
+
+</v-click>
+
+---
+
+# Practical: Docker-Compose
+
+Let's integrate several containers together using `docker-compose.yml`.
+<br>
+<br>
+We'll use this to build an container API and make it talk to a database container (MongoDB) in part 2 of this tutorial.
+
+```sh
+cd ${tutorial_directory}
+mkdir docker_tut_2
+cd docker_tut_2
+```
+
+```sh
+touch docker-compose.yml
+```
+
+---
+
+# Practical: Docker-Compose
+
+Let's define a basic api.
+
+````md magic-move
+
+```sh
+mkdir app
+touch app/api.py
+
+pip install flask
+```
+
+```python
+# app/api.py
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return jsonify({'message': 'Hello, world!', 'status': 'success'})
+
+if __name__ == '__main__':
+    app.run(debug=True)
+```
+
+```sh
+# Test it's working
+python3 app/api.py
+
+# In a new terminal
+curl http://127.0.0.1:3000
+```
+
+```sh
+# Test it's working
+{
+  "message": "Hello, world!",
+  "status": "success"
+}
+```
+
+````
+
+---
+
+# Practical: Docker-Compose
+
+Let's edit our `docker-compose.yml` file and create a python image.
+
+````md magic-move
+
+```yml
+#docker-compose.yml
+version: '3.9'
+
+services:
+  api:
+    image: python:3.10
+    working_dir: /usr/src/app
+    command: python app.py
+```
+
+```sh
+docker-compose up
+```
+
+
+````
+
+<v-click>
+Oh no, we get an error! 🥲
+
+```plaintext
+docker_tut_2-api-1  | python: can't open file '/usr/src/app/app.py': [Errno 2] No such file or directory
+docker_tut_2-api-1 exited with code 2
+```
+</v-click>
+
+---
+
+# Practical: Docker-Compose
+
+Using the `build` keyword.
+
+````md magic-move
+
+```yml
+#docker-compose.yml 
+version: '3.9'
+
+services:
+  api:
+    image: python:3.10
+    working_dir: /usr/src/app
+    command: python app.py
+```
+
+```sh
+mkdir ./flask
+touch ./flask/Dockerfile
+```
+
+```yml {*|6}
+#docker-compose.yml 
+version: '3.9'
+
+services:
+  api:
+    build: ./flask #directory where Dockerfile is
+```
+
+```docker
+# Dockerfile
+FROM python:3.10
+
+COPY ./app /api
+
+WORKDIR /api
+
+CMD ["python3", "api.py"]
+```
+
+```plaintext
+ => ERROR [api 3/3] COPY ./app ./api                                           0.0s
+ ...
+"/app": not found
+```
+
+```yml {*|6-8}
+#docker-compose.yml 
+version: '3.9'
+
+services:
+  api:
+    build:
+      context: .  # Set the context to the parent directory
+      dockerfile: ./flask/Dockerfile
+```
+
+```plaintext
+# Different error!
+...
+docker_tut_2-api-1  | ModuleNotFoundError: No module named 'flask'
+...
+```
+````
+
+---
+
+# Practical: Docker-Compose
+
+Let's try and diagnose the problem a different way.
+
+We can enter an image's filesystem and run commands using `docker run --rm -it`
+
+````md magic-move
+
+```sh
+docker run --rm -it ${image_name} bash
+
+python3
+
+>>> import flask
+```
+
+```plaintext
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+ModuleNotFoundError: No module named 'flask'
+```
+
+````
+
+<br>
+<br>
+
+<v-click>
+So it's an imports issue!
+</v-click>
+
+
+---
+
+# Practical: Docker-Compose
+
+Let's solve our dependency issue by creating a `.venv` and also installing any packages.
+
+````md magic-move
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+
+pip install flask
+```
+
+```sh
+pip3 freeze > requirements.txt # or pip freeze
+```
+
+```docker
+# ./flask/Dockerfile
+FROM python:3.10
+
+WORKDIR /api
+
+RUN python3 -m venv .venv
+
+ENV PATH="/api/.venv/bin:$PATH"
+
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY ./app /api/app
+
+CMD ["python3", "app/api.py"]
+```
+
+```sh
+docker-compose build --no-cache
+docker-compose up
+```
+
+```plaintext
+# success!
+docker_tut_2-api-1  |  * Serving Flask app 'api'
+docker_tut_2-api-1  |  * Debug mode: on
+```
+
+````
+
+---
+
+# Practical: Docker-Compose
+
+Don't forget to expose your container's ports!
+
+````md magic-move
+
+```sh
+# Let's test the api again
+curl localhost:3000
+```
+
+```plaintext
+curl: (7) Failed to connect to 127.0.0.1 port 3000 after 0 ms: Connection refused
+```
+
+```yml {*|8-9}
+version: '3.9'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: ./flask/Dockerfile
+    ports:
+      - "3000:3000"
+```
+
+```sh
+docker-compose up
+```
+
+```sh
+curl localhost:3000
+```
+
+```plaintext
+{
+  "message": "Hello, world!",
+  "status": "success"
+}
+```
+
+````
+
+---
+
+# Practical: Docker-Compose
+
+But what happens if we want to make a change to our source code, do we have to rebuild the container?
+<br>
+
+Not if we use a volume!
+
+````md magic-move
+
+```yml {*|8-9}
+version: '3.9'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: ./flask/Dockerfile
+    volumes:
+      - ./app:/api/app  # Mount the local './app' directory to '/app' in the container
+    ports:
+      - "3000:3000"
+```
+
+```
+docker-compose build
+docker-compose up
+```
+
+```python
+#app/api.py
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+
+@app.route("/")
+def home():
+    return jsonify({"message": "Hello, World!", "status": "success"})
+
+
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=3000, debug=True)
+```
+
+```python {*|9}
+#app/api.py
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+
+@app.route("/")
+def home():
+    return jsonify({"message": "Hello, MLX!", "status": "success"})
+
+
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=3000, debug=True)
+```
+
+
+```sh
+curl localhost:3000
+```
+
+```plaintext
+{
+  "message": "Hello, MLX!",
+  "status": "success"
+}
+```
+
+````
+
+---
+
+# Practical: Docker-Compose
+
+Let's add another container to our `docker-compose.yml` configuration.
+
+````md magic-move
+
+```yml {*|6-9}
+version: '3.9'
+
+services:
+  api:
+    #...
+  db:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+```
+
+```sh
+pip3 install pymongo
+
+pip3 freeze > requirements.txt
+```
+
+```python {*|3-12}
+#app/api.py
+from flask import Flask, jsonify
+from pymongo import MongoClient
+
+client = MongoClient('localhost', 27017)
+
+db = client['local']
+
+collection = db['test']
+
+item = {"name": "test", "value": "Hello MLX4!"}
+collection.insert_one(item)
+
+app = Flask(__name__)
+
+
+@app.route("/")
+def home():
+    return jsonify({"message": "Hello, MLX!", "status": "success"})
+
+
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=3000, debug=True)
+```
+
+```sh
+docker-compose up --build
+```
+
+```plaintext
+# Error, api.py can't reach mongodb 🤔
+docker_tut_2-api-1  | pymongo.errors.ServerSelectionTimeoutError: localhost:27017: [Errno 111] Connection refused (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: 30s, Topology Description: <TopologyDescription id: 662ad4798c76864cb4d41940, topology_type: Unknown, servers: [<ServerDescription ('localhost', 27017) server_type: Unknown, rtt: None, error=AutoReconnect('localhost:27017: [Errno 111] Connection refused (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)')>]>
+docker_tut_2-api-1 exited with code 1
+```
+
+````
+
+---
+
+# Practical: Docker-Compose
+
+Let's allow the python api to reach the docker container by adding an environment variable in `docker-compose.yml`.
+
+````md magic-move
+
+```yml {*|12-15}
+version: '3.9'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: ./flask/Dockerfile
+    volumes:
+      - ./app:/api/app  # Ensure this path matches the path used inside your Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
+    environment:
+      - MONGO_HOST=db  # Define environment variable for MongoDB host
+
+  db:
+    #...
+```
+
+```python {*|3-6}
+from flask import Flask, jsonify
+from pymongo import MongoClient
+import os
+
+# Use an environment variable for the MongoDB host
+mongo_host = os.getenv('MONGO_HOST', 'localhost')
+client = MongoClient(mongo_host, 27017)
+
+db = client['local']
+collection = db['test']
+
+item = {"name": "test", "value": "Hello MLX4!"}
+collection.insert_one(item)
+
+app = Flask(__name__)
+
+# ...
+```
+
+```python {*|4-5}
+# ...
+@app.route("/")
+def home():
+    item = collection.find_one({"name": "test"})
+    return jsonify({"message": item['value'], "status": "success"})
+
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=3000, debug=True)
+
+```
+
+```
+docker-compose up --build
+```
+
+```sh
+curl localhost:3000
+```
+
+```plaintext
+{
+  "message": "Hello MLX4!",
+  "status": "success"
+}
+```
+
+````
+
+---
+
+# Practical: CI/CD
+
+### Prerequisites
+
+Let's learn how to build an image using GitHub Actions and push it to the Docker Hub registry.
+
+1) Sign up to the Docker hub on: https://hub.docker.com/
+
+2) Create a new empty repository on GitHub
+
+3) Create an empty Docker Hub repository via: https://hub.docker.com/repository/create
+
+---
+
+# Practical: CI/CD
+
+Let's begin by creating a Dockerfile and pushing it to GitHub.
+
+````md magic-move
+
+```sh
+cd ${docker_tutorial_directory}
+mkdir docker_tut_3
+cd docker_tut_3
+
+touch Dockerfile
+
+git init
+git add -A
+git commit -m 'initial commit'
+
+# Optionally
+git branch -m master main
+```
+
+```sh
+git remote add origin https://github.com/albertbezman/docker-tut.git
+git branch -M main
+git push -u origin main
+```
+
+````
+
+---
+
+# Practical: CI/CD
+
+Let's add something to our Dockerfile.
+
+````md magic-move
+
+```docker
+FROM python:3.10
+
+CMD ["python3", "-c", "print('Hello World')"]
+```
+
+```sh
+git add -A
+git commit -m 'Dockerfile'
+git push
+```
+
+````
+
+---
+
+# Practical: CI/CD
+
+### Configure GitHub
+
+1) Go to your-repo/settings
+
+2) Find 'Secrets and variables'
+
+3) Add two new variables under: Actions > Repository Secrets
+
+```
+DOCKER_USERNAME
+DOCKER_PASSWORD
+```
+
+---
+
+# Practical: CI/CD
+
+### Adding the Github Actions workflow.
+
+````md magic-move
+
+```sh
+mkdir -p .github/workflows
+touch .github/workflows/docker-build.yml
+```
+
+```yml
+# docker-build.yml
+name: Docker Build and Push
+
+on:
+  push:
+    branches:
+      - main  # Set this to the branch you want to trigger the workflow
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check Out Repo
+      uses: actions/checkout@v2
+# ...
+```
+
+```yml
+# docker-build.yml
+# ...
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v1
+
+    - name: Login to DockerHub
+      uses: docker/login-action@v1
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v2
+      with:
+        push: true
+        tags: yourusername/yourrepository:latest  # Change 'yourusername/yourrepository' to your Docker Hub repo
+
+    - name: Logout from DockerHub
+      if: always()
+      run: docker logout
+```
+````
+
+---
+
+# Practical: CI/CD
+
+Let's check it out on GitHub actions.
+
+```
+git add -A
+git commit -m 'workflow'
+git push
+```
+
+<br>
+
+<v-click>
+
+1) Go to your GitHub Repo
+
+2) Find the 'Actions' tab
+
+3) Click into your new workflow
+
+4) Check out the new image you've pushed on Docker Hub
+
+</v-click>
+
+---
+
+# Practical: CI/CD
+
+Let's make a change to our Dockerfile and see how we can achieve CI/CD.
+
+````md magic-move
+
+```docker
+FROM python:3.10
+
+CMD ["python3", "-c", "print('Hello World')"]
+```
+
+```docker {*|3}
+FROM python:3.10
+
+CMD ["python3", "-c", "print('Hello MLX!')"]
+```
+
+```sh
+git add -A
+git commit -m 'workflow update'
+git push
+```
+
+````
+
+<v-click>
+
+Check it out on GitHub Actions and Docker Hub.
+
+</v-click>
+
+---
+
+# Workflow Runs on GitHub Actions
+
+![Github Actions](image/ga.png)
+
+---
+
+# The End 🐋
+
+My GH: [github.com/albertbezman](https://github.com/albertbezman)
