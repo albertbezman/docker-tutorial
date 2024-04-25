@@ -1587,4 +1587,4 @@ Check it out on GitHub Actions and Docker Hub.
 
 # The End 🐋
 
-My GH: [github.com/albertbezman](https://github.com/albertbezman)
+Author: [github.com/albertbezman](https://github.com/albertbezman)
